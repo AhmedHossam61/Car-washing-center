@@ -68,13 +68,13 @@ An AI-powered car wash monitoring system that:
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                   AI PROCESSING LAYER                           │
-│  ┌─────────────────┐    ┌─────────────────────────────────────┐ │
-│  │ Vehicle Detector│    │       ALPR / OCR Engine             │ │
-│  │  (YOLOv8/v9)   │───▶│  License Plate Detector (YOLOv8)   │ │
-│  └─────────────────┘    │  + OCR (PaddleOCR / EasyOCR)       │ │
-│                         │  Arabic + English support           │ │
-│                         └────────────────┬────────────────────┘ │
-└──────────────────────────────────────────┼──────────────────────┘
+│         ┌───────────────────────────────────────────────┐       │
+│         │           ALPR / OCR Engine                   │       │
+│         │  License Plate Detector (YOLOv11, LP-tuned)  │       │
+│         │  + OCR (PaddleOCR / EasyOCR fallback)        │       │
+│         │  Arabic + English support                     │       │
+│         └────────────────────┬──────────────────────────┘       │
+└──────────────────────────────┼──────────────────────────────────┘
                                            │ Plate text + confidence
                                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -121,8 +121,7 @@ An AI-powered car wash monitoring system that:
 | Layer | Technology | Reason |
 |-------|-----------|--------|
 | Language | Python 3.11+ | Best AI/CV ecosystem |
-| Vehicle Detection | YOLOv8 (Ultralytics) | Fast, accurate, pretrained |
-| License Plate Detection | YOLOv8 (custom or pretrained LP model) | Lightweight, real-time |
+| License Plate Detection | YOLOv11 (Ultralytics, LP-pretrained weights) | Latest Ultralytics model — better accuracy/speed than v8; pretrained LP weights available on Roboflow/HuggingFace; no vehicle detection step needed for fixed gate cameras |
 | OCR Engine | PaddleOCR (primary) + EasyOCR (fallback) | Both support Arabic script |
 | Stream Capture | OpenCV (`cv2.VideoCapture`) | RTSP support, stable |
 | Backend API | FastAPI | Async, fast, auto-docs |
@@ -235,8 +234,7 @@ src/
 │   └── frame_buffer.py     # Thread-safe frame buffer with max-size
 │
 ├── detection/
-│   ├── vehicle_detector.py # YOLOv8 vehicle detection (car/truck class filter)
-│   ├── plate_detector.py   # YOLOv8 license plate bounding box
+│   ├── plate_detector.py   # YOLOv11 license plate bounding box (direct, no vehicle step)
 │   ├── ocr_engine.py       # PaddleOCR + EasyOCR wrapper, Arabic normalization
 │   └── pipeline.py         # End-to-end: frame → plate text + confidence
 │
@@ -318,50 +316,59 @@ src/
 
 ## 7. ALPR Pipeline Design
 
+### Why No Vehicle Detection Step?
+
+Car wash gate cameras are **fixed, controlled environments** — the camera angle is set, and vehicles pass through a defined zone one at a time. Running a general vehicle detector first (YOLO on full-frame for cars/trucks) adds:
+- Extra model load and latency
+- An unnecessary dependency (if vehicle detector misses, plate is never read)
+
+Instead, we run **YOLOv11 directly on the full frame to find the license plate region**. This is simpler, faster, and equally accurate for a gate scenario. Vehicle detection would only be added if the scene were complex (e.g., parking lots, multi-lane roads).
+
+> **Fallback rule:** If false positives become a problem in testing (e.g., reflective surfaces triggering plate detections), a lightweight vehicle presence check can be added as a pre-filter without restructuring the pipeline.
+
+---
+
 ### Pipeline Steps (per frame)
 
 ```
 Raw Frame
     │
     ▼
-[1] Vehicle Detection (YOLOv8)
-    - Detect car/truck/bus classes
+[1] License Plate Detection (YOLOv11 — LP pretrained weights)
+    - Detect plate bounding box(es) directly in the full frame
+    - Pretrained model: e.g. keremberke/license-plate-object-detection (YOLOv8-based)
+      or equivalent YOLOv11 LP weights from Roboflow/HuggingFace
     - Filter by confidence threshold (default: 0.5)
-    - If no vehicle → skip frame
+    - If no plate found → skip frame, try next
+    - If multiple plates in frame → process each independently
     │
     ▼
-[2] Plate Region Detection (YOLOv8 LP model)
-    - Crop vehicle ROI
-    - Detect license plate bounding box within ROI
-    - If no plate detected → skip or retry next frame
-    │
-    ▼
-[3] Plate Image Pre-processing
-    - Crop plate region
+[2] Plate Image Pre-processing
+    - Crop plate bounding box from frame
     - Resize to standard size (e.g., 320×128)
     - Grayscale + contrast enhancement (CLAHE)
     - Perspective correction if skewed
     │
     ▼
-[4] OCR — Arabic + English
-    - Primary: PaddleOCR (supports Arabic)
+[3] OCR — Arabic + English
+    - Primary: PaddleOCR (supports Arabic, right-to-left)
     - Fallback: EasyOCR if PaddleOCR confidence < threshold
     - Output: raw text + confidence score
     │
     ▼
-[5] Plate Normalization
+[4] Plate Normalization
     - Strip spaces, special chars
     - Normalize Arabic characters (e.g., ا vs أ vs إ)
     - Uppercase Latin characters
     - Standard format: [ARABIC CHARS][LATIN CHARS][DIGITS]
     │
     ▼
-[6] Confidence Gate
+[5] Confidence Gate
     - If confidence < 0.70 → discard event
     - If plate < 3 chars → discard
     │
     ▼
-[7] Event Emission
+[6] Event Emission
     - Emit {plate_number, plate_raw, confidence, camera_id, frame_timestamp, snapshot}
     - → Session Manager
 ```
@@ -560,15 +567,15 @@ GET /api/v1/reports/export/excel?start=2026-05-20&end=2026-05-20
 
 **Goal:** Working ALPR on single camera
 
-- [ ] Integrate YOLOv8 vehicle detector
-- [ ] Integrate YOLOv8 license plate detector (pretrained or fine-tuned)
+- [ ] Source pretrained YOLOv11 LP detection weights (Roboflow universe or HuggingFace — e.g. `keremberke/license-plate-object-detection` ported to v11, or train on a Saudi plate dataset)
+- [ ] Integrate YOLOv11 plate detector (direct full-frame detection, no vehicle step)
 - [ ] Integrate PaddleOCR with Arabic language support
 - [ ] Integrate EasyOCR as fallback
 - [ ] Implement plate normalization (Arabic + English + digits)
 - [ ] Implement multi-frame voting for OCR accuracy
 - [ ] Test on sample Saudi plate images (offline)
 - [ ] Test on live RTSP stream (single camera)
-- [ ] Tune confidence thresholds
+- [ ] Tune confidence thresholds; add vehicle-presence pre-filter only if false positives are observed
 
 **Deliverable:** System reads Saudi license plates from live camera feed with >85% accuracy
 
@@ -693,7 +700,6 @@ carwash-monitor/
 │   │
 │   ├── detection/
 │   │   ├── __init__.py
-│   │   ├── vehicle_detector.py
 │   │   ├── plate_detector.py
 │   │   ├── ocr_engine.py
 │   │   └── pipeline.py
@@ -809,7 +815,6 @@ CAMERAS_JSON='[
 ]'
 
 # AI Thresholds
-VEHICLE_CONFIDENCE=0.5
 PLATE_CONFIDENCE=0.5
 OCR_CONFIDENCE=0.70
 DUPLICATE_GUARD_SECONDS=30
@@ -857,7 +862,8 @@ curl http://localhost:8000/api/v1/health
 |------|-----------|--------|------------|
 | OCR misreads Arabic characters | High | High | Multi-frame voting, fuzzy matching, confidence threshold, PaddleOCR + EasyOCR dual engine |
 | RTSP stream drops | Medium | Medium | Auto-reconnect with backoff, health monitoring |
-| Multiple vehicles in same frame | Medium | Medium | Vehicle detection → individual crop per vehicle |
+| Multiple plates in same frame | Low | Medium | YOLOv11 returns all bounding boxes; process each independently; gate cameras rarely have 2 cars in frame simultaneously |
+| False plate detection (non-plate region) | Low | Low | Confidence threshold (0.5+) filters most; add vehicle presence pre-filter only if needed in testing |
 | License plate partially obscured | High | Medium | Retry on next frames, multi-frame voting |
 | Same plate detected as new entry after exit | Low | High | Time-based duplicate guard (30s window) |
 | High CPU load from multiple cameras | Medium | Medium | Frame skip rate, configurable worker pool, GPU acceleration (if available) |

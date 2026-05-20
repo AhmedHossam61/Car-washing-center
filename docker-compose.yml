@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: carwash
+      POSTGRES_USER: carwash_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carwash_user -d carwash"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://carwash_user:${DB_PASSWORD:-change_me}@db/carwash
+      CAMERAS_JSON: ${CAMERAS_JSON:-[]}
+      SNAPSHOT_DIR: /app/snapshots
+      REPORT_DIR: /app/reports
+      LOG_FILE: /app/logs/carwash.log
+    volumes:
+      - ./snapshots:/app/snapshots
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
