@@ -1,6 +1,0 @@
-# PaddleOCR 3.x experiment for PP-OCRv5 mobile models.
-# This single-process app already uses GPU PyTorch for YOLO on Windows, so the
-# safe integrated path is the CPU Paddle runtime. A GPU Paddle OCR worker would
-# need process/environment isolation from the GPU PyTorch path.
-paddleocr>=3.3,<4
-paddlepaddle>=3.3,<4

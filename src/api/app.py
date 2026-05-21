@@ -3,13 +3,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 
 from src.api.routers import cameras, health, reports, sessions
-from src.config import get_settings
 from src.camera.manager import CameraManager
 from src.config import get_settings
 from src.detection.worker import AIWorker
@@ -66,15 +63,4 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router, prefix="/api/v1")
     app.include_router(reports.router, prefix="/api/v1")
 
-    _dashboard_template = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
-
-    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
-    async def dashboard() -> HTMLResponse:
-        settings = get_settings()
-        html = _dashboard_template.replace(
-            "__API_KEY_PLACEHOLDER__", settings.api_key or ""
-        )
-        return HTMLResponse(html)
-
     return app
-
