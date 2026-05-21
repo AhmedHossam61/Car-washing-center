@@ -40,6 +40,8 @@ class VehicleSession(Base):
     entry_snapshot_path: Mapped[Optional[str]] = mapped_column(Text)
     exit_snapshot_path: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    # Updated every time the plate is re-detected (single-camera presence tracking).
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
