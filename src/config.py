@@ -10,6 +10,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 CameraRole = Literal["entry", "exit", "both"]
+OCRBackend = Literal["paddle", "easyocr"]
+PreprocessVariant = Literal[
+    "current_pipeline",
+    "up2_clahe",
+    "up2_sharp",
+    "up3_clahe",
+    "up3_sharp",
+    "up2_adaptive",
+    "up3_adaptive",
+    "ocr_lab",
+]
 
 
 class CameraConfig(BaseModel):
@@ -29,13 +40,35 @@ class Settings(BaseSettings):
 
     plate_confidence: float = 0.5
     ocr_confidence: float = 0.70
+    ocr_use_gpu: bool = True
+    # Primary OCR engine: "paddle" | "easyocr"
+    ocr_backend: OCRBackend = "paddle"
+    # Fallback engine when primary returns nothing (set to same value to disable fallback).
+    ocr_fallback: OCRBackend = "easyocr"
+    paddle_text_recognition_model_name: str = "PP-OCRv5_mobile_rec"
     duplicate_guard_seconds: int = 30
     process_every_n_frames: int = 5
     ai_worker_count: int = 1
+    # Plate must appear in this many sampled frames (fuzzy-matched) before being recorded.
+    min_confirmation_hits: int = 3
+    # Max Levenshtein distance between digit strings to be treated as the same plate.
+    confirmation_fuzzy_threshold: int = 2
+    # Minutes of no detection before a single-camera ("both") session is auto-closed.
+    presence_timeout_minutes: int = 1
+    # Offline video tests can use a shorter timeout than the live camera worker.
+    video_absence_timeout_seconds: int = 40
     yolo_plate_weights: Path = Path("./models/license_plate_yolov11.pt")
+    # Controls both the YOLO inference size and the width the frame is downscaled
+    # to before detection. The OCR crop is always taken from the original full-res frame.
+    yolo_imgsz: int = 1920
+    # Plate crop preprocessing mode before OCR.
+    preprocess_variant: PreprocessVariant = "ocr_lab"
 
     snapshot_dir: Path = Path("./snapshots")
     report_dir: Path = Path("./reports")
+    google_sheets_enabled: bool = False
+    google_apps_script_url: str | None = None
+    google_apps_script_token: str | None = None
 
     api_key: str | None = None
     api_port: int = 8000

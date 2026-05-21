@@ -15,6 +15,7 @@ from src.detection.confirmation import ConfirmationFilter
 from src.detection.ocr_engine import OCREngine
 from src.detection.pipeline import ALPRPipeline
 from src.detection.plate_detector import PlateDetector
+from src.reporting.google_sheets import SheetSessionRow, session_writer_from_settings
 from src.session.presence_tracker import PlateObservation, PresenceTracker
 from src.utils.image_utils import pad_bbox, preprocess_plate_crop_variant
 
@@ -31,7 +32,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--every-n-frames", default=_settings.process_every_n_frames, type=int)
     parser.add_argument("--plate-confidence", default=_settings.plate_confidence, type=float)
     parser.add_argument("--ocr-confidence", default=_settings.ocr_confidence, type=float)
-    parser.add_argument("--cpu-ocr", action="store_true", help="Disable GPU usage for OCR.")
+    parser.add_argument(
+        "--cpu-ocr",
+        action="store_true",
+        default=not _settings.ocr_use_gpu,
+        help="Disable GPU usage for OCR.",
+    )
     parser.add_argument("--imgsz", default=_settings.yolo_imgsz, type=int)
     parser.add_argument("--ocr-backend", default=_settings.ocr_backend, choices=["paddle", "easyocr"])
     parser.add_argument("--ocr-fallback", default=_settings.ocr_fallback, choices=["paddle", "easyocr"])
@@ -51,9 +57,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--absence-timeout-seconds",
-        default=_settings.presence_timeout_minutes * 60,
+        default=_settings.video_absence_timeout_seconds,
         type=int,
         help="Infer exit after this many seconds without a confirmed plate read.",
+    )
+    parser.add_argument(
+        "--close-active-at-video-end",
+        action="store_true",
+        help="For recorded-video tests, close remaining active sessions at the video end.",
     )
     parser.add_argument("--debug", action="store_true",
                         help="Enable DEBUG logging and save every YOLO crop to disk for inspection.")
@@ -198,8 +209,11 @@ def main() -> int:
             frame_index += 1
 
     cap.release()
+    if args.close_active_at_video_end and last_video_time is not None:
+        presence.complete_active(last_video_time)
     presence_sessions = presence.sessions(last_video_time)
     _write_presence_sessions(sessions_csv_path, presence_sessions)
+    _append_presence_sessions_to_google_sheet(presence_sessions)
     print(
         f"\nProcessed {frame_index} frames."
         f"\n  Passed OCR + valid plate: {ocr_pass_count}"
@@ -257,6 +271,32 @@ def _write_presence_sessions(path: Path, sessions) -> None:
                     "confidence": f"{session.confidence:.4f}",
                 }
             )
+
+
+def _append_presence_sessions_to_google_sheet(sessions) -> None:
+    writer = session_writer_from_settings(_settings)
+    if writer is None:
+        return
+    completed_rows = [
+        SheetSessionRow(
+            source="recorded_video",
+            plate_number=session.plate_number,
+            numeric_part=session.numeric_part,
+            latin_part=session.latin_part,
+            arabic_part=session.arabic_part,
+            entry_time=session.entry_time,
+            last_seen_at=session.last_seen_at,
+            exit_time=session.exit_time,
+            duration_seconds=session.inferred_duration_seconds,
+            visible_duration_seconds=session.visible_duration_seconds,
+            status=session.status,
+            observations=session.observations,
+        )
+        for session in sessions
+        if session.status == "completed"
+    ]
+    appended = writer.append_sessions(completed_rows)
+    print(f"  Google Sheet rows added : {appended}")
 
 
 def _print_presence_sessions(sessions, absence_timeout_seconds: int) -> None:

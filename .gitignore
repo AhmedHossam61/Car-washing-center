@@ -1,5 +1,8 @@
 pytest-cache-files-ciqafkq4/
 pytest-cache-files-zp6dgga5/
+test_videos/
+carwash_monitor_plan.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -213,7 +216,6 @@ tempCodeRunnerFile.py
 snapshots/
 reports/
 logs/
-models/
 runs/
 
 # PyPI configuration file
@@ -226,3 +228,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+test_videos/*.mp4
+.claude/

@@ -20,6 +20,9 @@ class SessionEvent:
     confidence: float
     detected_at: datetime
     snapshot_path: str | None = None
+    # Digits-only key used for dedup and session lookup.
+    # e.g. plate_number='3327 HGJ' -> plate_digits='3327'
+    plate_digits: str = ""
 
 
 class SessionManager:
@@ -30,11 +33,12 @@ class SessionManager:
         self.events = EventRepository(db)
 
     async def handle_entry(self, event: SessionEvent) -> None:
-        if self.duplicate_guard.is_duplicate(event.camera_id, event.plate_number, event.detected_at):
+        lookup_key = event.plate_digits or event.plate_number
+        if self.duplicate_guard.is_duplicate(event.camera_id, lookup_key, event.detected_at):
             await self.events.create(**self._event_kwargs(event, event_type="entry", processed=True))
             return
 
-        existing = await self.sessions.find_active_by_plate(event.plate_number)
+        existing = await self.sessions.find_active_by_plate(lookup_key)
         if existing is not None:
             await self.events.create(**self._event_kwargs(event, event_type="entry", session_id=existing.id, processed=True))
             return
@@ -50,7 +54,8 @@ class SessionManager:
         await self.events.create(**self._event_kwargs(event, event_type="entry", session_id=vehicle_session.id, processed=True))
 
     async def handle_exit(self, event: SessionEvent) -> None:
-        match = await self.sessions.find_active_by_plate(event.plate_number)
+        lookup_key = event.plate_digits or event.plate_number
+        match = await self.sessions.find_active_by_plate(lookup_key)
         if match is None:
             active_sessions = await self.sessions.list_active()
             match = next(

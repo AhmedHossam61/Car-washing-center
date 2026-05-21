@@ -39,8 +39,8 @@ class SessionRepository:
         """Find an active session whose plate_number contains plate_key.
 
         When plate_key is the digits-only portion (e.g. '3327'), this matches
-        any canonical form like '3327 HGJ', 'مرح 3327 HGJ', etc., so OCR
-        variation in the Arabic prefix or Latin suffix doesn't fragment sessions.
+        the canonical English-only plate form (e.g. '3327 HGJ') even if the
+        OCR Latin suffix varies between reads.
         """
         result = await self.session.execute(
             select(VehicleSession)

@@ -12,9 +12,10 @@ class PlateDetection:
 
 
 class PlateDetector:
-    def __init__(self, weights_path: Path, confidence_threshold: float) -> None:
+    def __init__(self, weights_path: Path, confidence_threshold: float, imgsz: int = 1280) -> None:
         self.weights_path = weights_path
         self.confidence_threshold = confidence_threshold
+        self.imgsz = imgsz
         self._model: Any | None = None
 
     def load(self) -> None:
@@ -26,7 +27,7 @@ class PlateDetector:
         if self._model is None:
             self.load()
 
-        results = self._model.predict(frame, conf=self.confidence_threshold, verbose=False)
+        results = self._model.predict(frame, conf=self.confidence_threshold, imgsz=self.imgsz, verbose=False)
         detections: list[PlateDetection] = []
         for result in results:
             for box in result.boxes:
